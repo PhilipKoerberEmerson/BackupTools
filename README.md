@@ -1,107 +1,24 @@
-# BackupTools
+﻿# BackupTools
 
-A collection of small, dependency-free backup tools for everyday use.
+A collection of small, dependency-free backup tools for everyday use. Each tool lives in its own folder with a detailed README — this page only gives a short overview.
 
-| Platform | Tool | Description |
-|----------|------|-------------|
-| Windows  | [`Windows/DataBackup/backupMyData.cmd`](Windows/DataBackup/backupMyData.cmd) | Configurable data backup for Windows 10 / 11 with full or incremental backups and Task Scheduler integration |
-| Windows  | [`Windows/SystemBackup/backup.cmd`](Windows/SystemBackup/backup.cmd) | WinPE-based full-system backup & restore with indexed WIM images — see [SystemBackup README](Windows/SystemBackup/README.md) |
-| Linux    | *(coming soon)* | |
+## Windows
 
----
+### [DataBackup](Windows/DataBackup/) — scheduled folder backups
 
-## BackupMyData (Windows)
+Backs up any number of folders to a local disk, USB drive, or network share — either as browsable timestamped full copies (robocopy) or as space-saving incremental WIM images (DISM). Includes an interactive menu and Task Scheduler integration for fully automatic backups. Uses only tools that ship with Windows 10 / 11.
 
-A single, self-contained `.cmd` script that backs up any number of folders to a local disk, USB drive, or network share. No installation, no third-party tools — it only uses what ships with Windows (`robocopy`, `dism`, `schtasks`, `powershell`).
+➡️ Details: [Windows/DataBackup/README.md](Windows/DataBackup/README.md)
 
-### Features
+### [SystemBackup](Windows/SystemBackup/) — full-system backup & restore from WinPE
 
-- 🗂️ **Two backup modes**
-  - **TIMESTAMP** — every run creates a new folder `<TARGET>\yyyy-MM-dd_HH-mm-ss\<SourceName>` with a full copy (robocopy). Browsable directly in Explorer; each run needs the full amount of space.
-  - **WIM** — every source is kept in a single `<TARGET>\<SourceName>.wim` image file. The first run captures a full image, later runs *append* a new version (DISM). Unchanged files are stored only once, so each version only costs the changes. Requires administrator rights.
-- ⏰ **Automatic backups** via the Windows Task Scheduler — daily, weekly, at user logon, or at system startup. Catches up missed runs and also runs on battery power.
-- 🖱️ **Interactive menu** for configuration, manual runs, schedule management, and status — or fully scriptable via command-line switches.
-- 📝 **Logging** to `<TARGET>\_logs` with per-run log files and meaningful exit codes.
-- 🔧 **Plain-text configuration** in an `.ini` file next to the script — easy to edit, easy to version.
+Creates indexed, incremental full-system backups of a Windows installation into a single WIM file, booted from a WinPE USB drive. Can restore a backup onto a (new) disk including UEFI partitioning and boot setup — a complete bare-metal recovery solution.
 
-### Quick start
+➡️ Details: [Windows/SystemBackup/README.md](Windows/SystemBackup/README.md)
 
-```bat
-:: 1. Interactive: configure sources, target, mode, and (optionally) a schedule
-backupMyData.cmd
+## Linux
 
-:: 2. Or step by step:
-backupMyData.cmd /setup      :: configure sources, target and mode
-backupMyData.cmd /run        :: run a backup now
-backupMyData.cmd /install    :: install the automatic schedule (admin)
-backupMyData.cmd /status     :: show configuration and schedule status
-```
-
-### Command-line reference
-
-| Option | Description |
-|--------|-------------|
-| *(none)* | Interactive menu |
-| `/run` | Run the backup unattended (used by the scheduled task) |
-| `/setup` | Configure sources, target and mode, then optionally install the schedule |
-| `/install` | Install or update the automatic backup schedule (admin) |
-| `/uninstall` | Remove the automatic backup schedule (admin) |
-| `/status` | Show configuration and schedule status |
-| `/cfg <file>` | Use another configuration file (default: `backupMyData.ini` next to the script) |
-| `/?` `/h` `/help` | Show built-in help |
-
-All options accept `/` or `-` as prefix, e.g. `-run`.
-
-**Exit codes:** `0` = success · `1` = completed with warnings · `2` = error
-
-### Configuration file
-
-Created by `/setup`, may also be edited manually (no spaces around `=`):
-
-```ini
-; comment
-TARGET=E:\Backup
-MODE=TIMESTAMP              ; TIMESTAMP or WIM
-WIM_COMPRESS=max            ; none, fast or max (WIM mode only)
-SOURCE=C:\Users\me\Documents
-SOURCE=D:\Projects          ; repeat SOURCE= for every folder
-```
-
-> **Note:** Paths containing `!` are not supported. Log files are written to `<TARGET>\_logs`.
-
-### Restoring from a WIM backup
-
-In an elevated console:
-
-```bat
-:: List available versions
-dism /Get-ImageInfo /ImageFile:"E:\Backup\Documents.wim"
-
-:: Restore a version to a folder
-dism /Apply-Image /ImageFile:"E:\Backup\Documents.wim" /Index:3 /ApplyDir:"C:\Restore"
-
-:: Browse a version read-only
-dism /Mount-Image /ImageFile:"E:\Backup\Documents.wim" /Index:3 /MountDir:"C:\Mnt" /ReadOnly
-dism /Unmount-Image /MountDir:"C:\Mnt" /Discard
-```
-
-7-Zip can also open `.wim` files directly.
-
-TIMESTAMP backups are plain folders — just copy the files back with Explorer or robocopy.
-
-### Scheduled task details
-
-The schedule is installed as Task Scheduler task **`BackupMyData`** — the supported way on Windows 10/11 to run a script unattended. It runs with highest privileges, catches up missed runs, and also runs on battery power.
-
-- Run as **SYSTEM** for local/USB targets (no password needed).
-- Run as **your user** for network share targets (password is asked once).
-- Manage it anytime with `taskschd.msc` or `schtasks /Run /TN "BackupMyData"`.
-
-### Good to know
-
-- **WIM mode** needs administrator rights and fails on open/locked files — close applications that use the source data before the backup runs.
-- **TIMESTAMP mode** uses robocopy with retries, multithreading, and (when elevated) backup mode `/B` to read files regardless of ACLs.
-- The backup target itself, `$RECYCLE.BIN`, and `System Volume Information` are automatically excluded.
+*(coming soon)*
 
 ## License
 
