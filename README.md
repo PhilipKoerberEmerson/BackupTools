@@ -5,6 +5,7 @@ A collection of small, dependency-free backup tools for everyday use.
 | Platform | Tool | Description |
 |----------|------|-------------|
 | Windows  | [`Windows/DataBackup/backupMyData.cmd`](Windows/DataBackup/backupMyData.cmd) | Configurable data backup for Windows 10 / 11 with full or incremental backups and Task Scheduler integration |
+| Windows  | [`Windows/SystemBackup/backup.cmd`](Windows/SystemBackup/backup.cmd) | WinPE-based full-system backup & restore with indexed WIM images — see [SystemBackup README](Windows/SystemBackup/README.md) |
 | Linux    | *(coming soon)* | |
 
 ---
