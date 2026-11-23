@@ -18,17 +18,16 @@
 3. **Recommended layout:** one external USB hard disk / SSD with
    - a small **FAT32 partition** that boots WinPE and auto-starts `backup.cmd`, and
    - a big **NTFS partition** (containing `bigWimVolume.txt`) for the `backup.wim`.
-4. **Companion files** expected by the script:
+4. **Optional companion files** — built-in defaults are used when they are missing:
 
    | File | Location | Purpose |
    |------|----------|---------|
    | `ExclusionList.ini` | `%UFDV%:\scripts\` | Base DISM `[ExclusionList]` |
    | `CompressionExclusionList.ini` | `%UFDV%:\scripts\` | DISM `[CompressionExclusionList]` |
-   | `ListDisk.txt` | `%DEPLOYTOOLS%\` | diskpart script to list disks (restore) |
    | `CreatePartitions-UEFI.txt` | next to `backup.cmd` | diskpart script: UEFI partition layout (restore) |
    | `HideRecoveryPartitions-UEFI.txt` | next to `backup.cmd` | diskpart script: hide recovery partition (restore) |
 
-   The environment variables `UFDV` (USB flash drive volume) and `DEPLOYTOOLS` must be set by the WinPE startup environment.
+   The environment variable `UFDV` (USB flash drive volume) is normally set by the WinPE startup environment; if it is not set, the drive the script runs from is used. Any `select disk` lines in the diskpart companion files are **ignored** — the disk chosen interactively during restore is always used.
 
 ## Usage
 

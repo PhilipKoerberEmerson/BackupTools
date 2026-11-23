@@ -1,215 +1,405 @@
 @echo off
+rem ===========================================================================
+rem  backup.cmd - Windows full-system backup and restore (WinPE / DISM)
 rem
-rem This script creates and restores indexed Windows backups from an volume containing bigWimVolume.txt
-rem Note the restore option will only work for Windows versions to be booted in UEFI mode
+rem  Creates indexed, incremental full-system backups of a Windows volume into
+rem  a single WIM file and restores them onto a disk, including UEFI
+rem  partitioning and boot setup.
 rem
+rem  Requirements
+rem    - Backup storage: a big NTFS volume with an (empty) marker file
+rem      "bigWimVolume.txt" in its root. The script finds it automatically.
+rem    - Restore only works from WinPE on a PC booted in UEFI mode.
+rem
+rem  Optional companion files (built-in defaults are used when missing)
+rem    - <UFDV>:\scripts\ExclusionList.ini             DISM [ExclusionList]
+rem    - <UFDV>:\scripts\CompressionExclusionList.ini  DISM [CompressionExclusionList]
+rem    - CreatePartitions-UEFI.txt (next to this script)       diskpart layout
+rem    - HideRecoveryPartitions-UEFI.txt (next to this script)
+rem      NOTE: "select disk" lines in these files are ignored - the disk that
+rem      was chosen interactively is always used.
+rem
+rem  See README.md for the full documentation.
+rem ===========================================================================
+setlocal EnableExtensions
+set "APP_NAME=SystemBackup"
+set "APP_VERSION=2.0.0"
+set "backupWim=backup.wim"
+set "RC=1"
+set "startTime=%time%"
 
+rem --- Writable temp folder ---------------------------------------------------
+set "TMPDIR=%TEMP%"
+if not defined TEMP set "TMPDIR=."
+
+title %APP_NAME% v%APP_VERSION%
 echo.
 echo ******************************************************************************
-echo.        Welcome to the Windows Backup and Restore Script
-echo.        Note: The restore is only intended for UEFI-boot
+echo         %APP_NAME% v%APP_VERSION% - Windows Backup and Restore Script
+echo         Note: Restore requires WinPE and a PC booted in UEFI mode
 echo ******************************************************************************
 echo.
 
-rem Find the volume for the big WIM-file
-for %%V in (C D E F G H I J K L M N O P Q R S T U V W X Y Z) do @if exist %%V:\bigWimVolume.txt set bigWimVolume=%%V
-if not exist %bigWimVolume%:\bigWimVolume.txt echo %bigWimVolume%:\bigWimVolume.txt, which specifies the storage location for the backup, not found, aborting. && goto :abort
-set backupWim=backup.wim
+rem --- Locate the backup storage volume via its marker file -------------------
+set "bigWimVolume="
+for %%V in (C D E F G H I J K L M N O P Q R S T U V W X Y Z) do if exist "%%V:\bigWimVolume.txt" set "bigWimVolume=%%V"
+if not defined bigWimVolume (
+    echo ERROR: No volume with the marker file "bigWimVolume.txt" found.
+    echo        Create an empty file named bigWimVolume.txt in the root of the
+    echo        NTFS volume that shall store the backup, then run again.
+    goto :abort
+)
+echo Backup storage: %bigWimVolume%:\%backupWim%
 
+rem --- Locate the scripts folder with the DISM exclusion lists ----------------
+rem     UFDV is normally set by the WinPE startup environment; fall back to the
+rem     drive this script runs from.
+if not defined UFDV set "UFDV=%~d0"
+set "UFDV=%UFDV::=%"
+set "SCRIPTS_DIR=%UFDV%:\scripts"
 
-rem The very first is to choose, if a backup shall be created or restored 
-:firstquestion
-choice /c BRQH /m "Choose B for creating a backup, R for restore, Q for quit or H for help"
+:mainMenu
+echo.
+choice /c BRQH /m "Choose B to create a backup, R to restore, Q to quit, H for help"
 if errorlevel 4 goto :help
-if errorlevel 3 goto :abort
+if errorlevel 3 goto :quit
 if errorlevel 2 goto :restore
-if errorlevel 1 goto :create
 
 
-rem Here comes the create-backup-part, which can also append an existing WIM-file
+rem ===========================================================================
+rem  Backup
+rem ===========================================================================
 :create
 echo.
 echo ******************************************************************************
-echo.        Backup selected
+echo         Backup selected
 echo ******************************************************************************
 echo.
-rem Create Time-Stamp-String
-For /f "tokens=1-2 delims=/:" %%a in ("%TIME%") do (set mytime=%%a:%%b)
-set _my_date=%DATE%
-set _my_date=%_my_date:~-10%
-set _delim=%_my_date:~2,1%
-if "%_delim%"=="." (
-    rem German date format
-    for /f "tokens=1,2,3 delims=." %%a in ('echo %_my_date%') do set mydate=%%b-%%a-%%c
-) else (
-    rem English date format
-    for /f "tokens=1,2,3 delims=/" %%a in ('echo %_my_date%') do set mydate=%%a-%%b-%%c
-)
-rem Select image partition to capture
-echo list volume > _CAPTURE.TMP
-echo exit >> _CAPTURE.TMP
-diskpart < _CAPTURE.TMP
-del _CAPTURE.TMP
+call :makeTimestamp
+
+echo Volumes on this system:
+echo list volume | diskpart
+
 :selectVolumeToBackup
-set /p volumeToBackup="Enter the volume-letter which should be captured as backup (Typically the Windows Installation): "
-if errorlevel 1 goto :selectVolumeToBackup
-set /p BackupNotes="Here you can add a description of the backup or just hit enter: "
-set action=append-image
-if not exist %bigWimVolume%:\%backupWim% set action=capture-image /compress:max
-set my_description=Backup from %mydate% at %mytime% %BackupNotes%
-echo Now we have to exclude OneDrive and WSL things, as those can make serious problems for the backup.
-type nul > OneDriveFolders.txt
-type nul > LinuxSubsystems.txt
-setlocal EnableDelayedExpansion
-  for /d %%u in (%volumeToBackup%:\Users\*.*) do (
-    set Y=%%u
-    echo !Y:~2!\OneDriv*                                        >> OneDriveFolders.txt
-    echo !Y:~2!\AppData\Local\Packages\CanonicalGroupLimited*   >> LinuxSubsystems.txt      )
-setlocal DisableDelayedExpansion
-echo This will be excluded from the backup with following configfile %UFDV%:\scripts\backup.ini for DISM:
-type %UFDV%:\scripts\ExclusionList.ini > %UFDV%:\scripts\backup.ini
-type OneDriveFolders.txt >> %UFDV%:\scripts\backup.ini
-type LinuxSubsystems.txt >> %UFDV%:\scripts\backup.ini
-echo. >> %UFDV%:\scripts\backup.ini
-del OneDriveFolders.txt
-del LinuxSubsystems.txt
-type %UFDV%:\scripts\CompressionExclusionList.ini >> %UFDV%:\scripts\backup.ini
-type %UFDV%:\scripts\backup.ini
-echo Creating backup (%action%) into %bigWimVolume%:\%backupWim% from the volume with the letter %volumeToBackup%
-echo With description: "%my_description%"
-echo Deployment Image Servicing and Management tool will use above configfile %UFDV%:\scripts\backup.ini
-echo Command-line: dism /%action% /imagefile:%bigWimVolume%:\%backupWim% /capturedir:%volumeToBackup%: /name:"Backup %mydate% %mytime%" /description:"%my_description%" /configFile:%UFDV%:\scripts\backup.ini
-choice /c YN /m "You are OK with above configfile and you do not want to edit %UFDV%:\scripts\backup.ini by your own?"
-if errorlevel 2 notepad %UFDV%:\scripts\backup.ini
-choice /c YN /m "Are you really sure to create now the backup?"
-if errorlevel 2 goto :firstquestion
-set startTime=%time%
-dism /%action% /imagefile:%bigWimVolume%:\%backupWim% /capturedir:%volumeToBackup%: /name:"Backup %mydate% %mytime%" /description:"%my_description%" /configFile:%UFDV%:\scripts\backup.ini
-echo Writing detailed info about all backups in %bigWimVolume%:\%backupWim% to %bigWimVolume%:\%backupWim:~0,-4%.txt
-dism /get-wiminfo /wimfile:%bigWimVolume%:\%backupWim% > %bigWimVolume%:\%backupWim:~0,-4%.txt
-move /y %UFDV%:\scripts\backup.ini %bigWimVolume%:
+set "volumeToBackup="
+set /p "volumeToBackup=Drive letter of the volume to back up (typically the Windows installation): "
+if not defined volumeToBackup goto :selectVolumeToBackup
+set "volumeToBackup=%volumeToBackup::=%"
+set "volumeToBackup=%volumeToBackup:"=%"
+echo %volumeToBackup%| findstr /r /i /c:"^[A-Z]$" >nul || (echo   Please enter a single drive letter, e.g. C. & goto :selectVolumeToBackup)
+if not exist "%volumeToBackup%:\" (echo   Volume %volumeToBackup%: is not accessible. & goto :selectVolumeToBackup)
+if /i "%volumeToBackup%"=="%bigWimVolume%" (echo   %volumeToBackup%: is the backup storage volume itself - choose another one. & goto :selectVolumeToBackup)
+
+set "BackupNotes="
+set /p "BackupNotes=Optional description of this backup (Enter to skip): "
+
+set "action=Append-Image"
+if not exist "%bigWimVolume%:\%backupWim%" set "action=Capture-Image /Compress:max"
+set "my_description=Backup from %TS% %BackupNotes%"
+
+rem --- Build the DISM configuration file (exclusions) --------------------------
+set "CFG=%TMPDIR%\_sysbackup_backup.ini"
+if exist "%SCRIPTS_DIR%\ExclusionList.ini" (
+    type "%SCRIPTS_DIR%\ExclusionList.ini" > "%CFG%"
+) else (
+    echo WARNING: "%SCRIPTS_DIR%\ExclusionList.ini" not found - using built-in defaults.
+    > "%CFG%" (
+        echo [ExclusionList]
+        echo \pagefile.sys
+        echo \swapfile.sys
+        echo \hiberfil.sys
+        echo \System Volume Information
+        echo \$Recycle.Bin\*
+        echo \Windows\CSC
+    )
+)
+rem OneDrive and WSL folders cause DISM problems - exclude them per user profile
+if exist "%volumeToBackup%:\Users\" (
+    setlocal EnableDelayedExpansion
+    for /d %%U in ("%volumeToBackup%:\Users\*") do (
+        set "U=%%~U"
+        >>"%CFG%" echo !U:~2!\OneDriv*
+        >>"%CFG%" echo !U:~2!\AppData\Local\Packages\CanonicalGroupLimited*
+    )
+    endlocal
+)
+>>"%CFG%" echo(
+if exist "%SCRIPTS_DIR%\CompressionExclusionList.ini" (
+    type "%SCRIPTS_DIR%\CompressionExclusionList.ini" >> "%CFG%"
+) else (
+    echo WARNING: "%SCRIPTS_DIR%\CompressionExclusionList.ini" not found - using built-in defaults.
+    >> "%CFG%" (
+        echo [CompressionExclusionList]
+        echo *.mp3
+        echo *.zip
+        echo *.cab
+        echo \WINDOWS\inf\*.pnf
+    )
+)
+
+echo.
+echo The following DISM configuration file will be used:
+echo ------------------------------------------------------------------------------
+type "%CFG%"
+echo ------------------------------------------------------------------------------
+where notepad >nul 2>&1
+if not errorlevel 1 (
+    choice /c YN /m "Use this configuration as is (N = edit it in Notepad first)"
+    if errorlevel 2 notepad "%CFG%"
+)
+
+echo.
+echo Command: dism /%action% /ImageFile:"%bigWimVolume%:\%backupWim%" /CaptureDir:%volumeToBackup%:\ /Name:"Backup %TS%" /Description:"%my_description%" /ConfigFile:"%CFG%"
+choice /c YN /m "Create the backup now"
+if errorlevel 2 goto :mainMenu
+
+set "startTime=%time%"
+dism /%action% /ImageFile:"%bigWimVolume%:\%backupWim%" /CaptureDir:%volumeToBackup%:\ /Name:"Backup %TS%" /Description:"%my_description%" /ConfigFile:"%CFG%"
+set "DISMRC=%errorlevel%"
+if not "%DISMRC%"=="0" (
+    echo.
+    echo ERROR: DISM failed with exit code %DISMRC% - this backup is NOT usable.
+    echo        Verify the existing indexes with:
+    echo          dism /Get-WimInfo /WimFile:%bigWimVolume%:\%backupWim%
+    goto :abort
+)
+echo.
+echo Writing index overview to %bigWimVolume%:\%backupWim:~0,-4%.txt
+dism /Get-WimInfo /WimFile:"%bigWimVolume%:\%backupWim%" > "%bigWimVolume%:\%backupWim:~0,-4%.txt"
+copy /y "%CFG%" "%bigWimVolume%:\backup_%TS%.ini" >nul
+echo Backup created successfully. Verify it with a test restore, or by mounting:
+echo   dism /Mount-Image /ImageFile:%bigWimVolume%:\%backupWim% /Index:^<n^> /MountDir:C:\Mnt /ReadOnly
 goto :end
 
 
-rem Here comes the restore-backup-part
+rem ===========================================================================
+rem  Restore
+rem ===========================================================================
 :restore
 echo.
 echo ******************************************************************************
-echo.        Restore selected - Attention this may delete all your data!
+echo         Restore selected - ATTENTION: this will ERASE the target disk!
 echo ******************************************************************************
 echo.
-rem First set _DESTINATION to NOTSET inorder to avoid serious data-loss due to an possibly wrong preset
-set _DESTINATION=NOTSET
-echo Lets look into your %bigWimVolume%:\%backupWim% for available restore-points:
+if not exist "%bigWimVolume%:\%backupWim%" (
+    echo ERROR: No backup found at %bigWimVolume%:\%backupWim%.
+    goto :mainMenu
+)
+if not exist X:\Windows\System32\ (
+    echo ERROR: Restore can only run from WinPE - boot from the backup drive first.
+    goto :mainMenu
+)
+wpeutil UpdateBootInfo >nul 2>&1
+set "Firmware="
+for /f "tokens=3" %%A in ('reg query HKLM\System\CurrentControlSet\Control /v PEFirmwareType ^| find "PEFirmwareType"') do set "Firmware=%%A"
+if not "%Firmware%"=="0x2" (
+    echo ERROR: The PC is booted in legacy BIOS mode - restore supports UEFI only.
+    goto :mainMenu
+)
+
+echo Available restore points in %bigWimVolume%:\%backupWim%:
+dism /Get-WimInfo /WimFile:"%bigWimVolume%:\%backupWim%"
+:selectIndex
+set "_SELECTED_INDEX="
+set /p "_SELECTED_INDEX=Index of the backup to restore (usually the highest): "
+set "_SELECTED_INDEX=%_SELECTED_INDEX:"=%"
+echo %_SELECTED_INDEX%| findstr /r /c:"^[1-9][0-9]*$" >nul || (echo   Please enter a valid index number. & goto :selectIndex)
+dism /Get-WimInfo /WimFile:"%bigWimVolume%:\%backupWim%" /Index:%_SELECTED_INDEX%
+if errorlevel 1 (echo   Index %_SELECTED_INDEX% does not exist in the backup. & goto :selectIndex)
+
+echo.
+echo Disks on this system:
+echo list disk | diskpart
+:selectDisk
+set "_DESTINATION="
+set /p "_DESTINATION=Number of the disk to restore onto (X = back to menu): "
+set "_DESTINATION=%_DESTINATION:"=%"
+if /i "%_DESTINATION%"=="X" goto :mainMenu
+echo %_DESTINATION%| findstr /r /c:"^[0-9][0-9]*$" >nul || (echo   Please enter a disk number, e.g. 0. & goto :selectDisk)
+> "%TMPDIR%\_sysbackup_detail.tmp" echo select disk %_DESTINATION%
+>> "%TMPDIR%\_sysbackup_detail.tmp" echo detail disk
+diskpart /s "%TMPDIR%\_sysbackup_detail.tmp" > "%TMPDIR%\_sysbackup_detail.out" 2>&1
+if errorlevel 1 (
+    type "%TMPDIR%\_sysbackup_detail.out"
+    echo   Disk %_DESTINATION% could not be selected - does it exist?
+    goto :selectDisk
+)
+type "%TMPDIR%\_sysbackup_detail.out"
+find /i " %bigWimVolume% " "%TMPDIR%\_sysbackup_detail.out" >nul 2>&1
+if not errorlevel 1 (
+    echo.
+    echo   ERROR: Disk %_DESTINATION% contains the backup storage volume %bigWimVolume%: -
+    echo          restoring onto it would destroy your backups. Choose another disk.
+    goto :selectDisk
+)
+
+echo.
+echo ******************************************************************************
+echo   ALL DATA ON DISK %_DESTINATION% (shown above) WILL BE ERASED and replaced
+echo   with %bigWimVolume%:\%backupWim% index %_SELECTED_INDEX%.
+echo ******************************************************************************
+choice /c YN /m "Are you really sure"
+if errorlevel 2 goto :mainMenu
+echo This is the last chance to abort with Ctrl+C.
 pause
-dism /get-wiminfo /wimfile:%bigWimVolume%:\%backupWim%
-set /p _SELECTED_INDEX="Choose an index, for specifying the backup to be used: "
-echo. && echo Now its time to choose the Disk to restore...
-if "%_DESTINATION%" == "" goto :select_disk
-if "%_DESTINATION%" == "NOTSET" goto :select_disk
-echo Attention - Using preset deployment destination - %_DESTINATION%
-goto :last_check_before_restore
-:select_disk
-diskpart /s %DEPLOYTOOLS%\ListDisk.txt
-set /p _DESTINATION="Disk to restore not set, please choose disk-number or answer with 'X' if you want to abort: "
-set _DESTINATION=Disk %_DESTINATION%
-if not x"%_DESTINATION:x=%" == x"%_DESTINATION%" goto :abort
-if x"%_DESTINATION:dis=%" == x"%_DESTINATION%" goto :select_disk
-:last_check_before_restore
-echo.
-choice /c YN /m "Restore %_DESTINATION% with %bigWimVolume%:\%backupWim% index %_SELECTED_INDEX%, are you really sure?"
-if errorlevel 2 goto :firstquestion
-echo.
-echo All data on %_DESTINATION% will be deleted soon!
-echo Here is the last chance to exit with Ctrl+C
-echo.
-pause
-set startTime=%time%
-if not exist X:\Windows\System32 echo ERROR: This script is built to run only in WindowsPE.
-if not exist X:\Windows\System32 goto :abort
-echo Checking if the PC has booted in UEFI mode...
-wpeutil UpdateBootInfo
-for /f "tokens=2* delims=	 " %%A in ('reg query HKLM\System\CurrentControlSet\Control /v PEFirmwareType') DO SET Firmware=%%B
-if %Firmware%==0x2 echo OK, the PC is booted in UEFI mode.
-if %Firmware%==0x1 echo The PC is booted in BIOS mode! && goto :abort
-diskpart /s %~dp0CreatePartitions-UEFI.txt
-echo Set high-performance power scheme to speed up deployment...
-call powercfg /s 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c
-echo Applying %bigWimVolume%:\%backupWim% index %_SELECTED_INDEX% to W:\ on %_DESTINATION%...
-echo Command-line: dism /Apply-Image /ImageFile:%bigWimVolume%:\%backupWim% /Index:%_SELECTED_INDEX% /ApplyDir:W:\
-dism /Apply-Image /ImageFile:%bigWimVolume%:\%backupWim% /Index:%_SELECTED_INDEX% /ApplyDir:W:\
-echo Copy boot files to the System partition...
+set "startTime=%time%"
+
+rem --- Partition the target disk (UEFI layout) ---------------------------------
+set "DPS=%TMPDIR%\_sysbackup_parts.tmp"
+if exist "%~dp0CreatePartitions-UEFI.txt" (
+    rem Use the custom layout, but always force the interactively selected disk
+    > "%DPS%" echo select disk %_DESTINATION%
+    findstr /v /r /i /c:"^ *select *disk" "%~dp0CreatePartitions-UEFI.txt" >> "%DPS%"
+) else (
+    > "%DPS%" (
+        echo select disk %_DESTINATION%
+        echo clean
+        echo convert gpt
+        echo create partition efi size=260
+        echo format quick fs=fat32 label="System"
+        echo assign letter="S"
+        echo create partition msr size=16
+        echo create partition primary
+        echo shrink minimum=650
+        echo format quick fs=ntfs label="Windows"
+        echo assign letter="W"
+        echo create partition primary
+        echo format quick fs=ntfs label="Recovery"
+        echo assign letter="R"
+        echo set id="de94bba4-06d1-4d40-a16a-bfd50179d6ac"
+        echo gpt attributes=0x8000000000000001
+        echo list volume
+    )
+)
+echo Partitioning disk %_DESTINATION%...
+diskpart /s "%DPS%"
+if errorlevel 1 (echo ERROR: Partitioning disk %_DESTINATION% failed. & goto :abort)
+if not exist W:\ (echo ERROR: Windows partition W: was not created by the diskpart script. & goto :abort)
+if not exist S:\ (echo ERROR: System partition S: was not created by the diskpart script. & goto :abort)
+
+echo Switching to the high-performance power scheme to speed up deployment...
+powercfg /s 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c >nul 2>&1
+
+echo Applying %bigWimVolume%:\%backupWim% index %_SELECTED_INDEX% to W:\ ...
+dism /Apply-Image /ImageFile:"%bigWimVolume%:\%backupWim%" /Index:%_SELECTED_INDEX% /ApplyDir:W:\
+if errorlevel 1 (
+    echo ERROR: DISM /Apply-Image failed - the disk is NOT restored and NOT bootable.
+    goto :abort
+)
+
+echo Writing boot files to the System partition...
 W:\Windows\System32\bcdboot W:\Windows /s S:
-echo Seting this Windows Boot Manager as first item in the UEFI boot order...
+if errorlevel 1 (echo ERROR: bcdboot failed - the restored Windows will not boot. & goto :abort)
+
+echo Setting Windows Boot Manager first in the UEFI boot order...
 bcdedit /set {fwbootmgr} displayorder {bootmgr} /addfirst
+if errorlevel 1 echo WARNING: Could not change the UEFI boot order - set it in the firmware setup.
+
 echo Hiding the recovery tools partition...
-diskpart /s %~dp0HideRecoveryPartitions-UEFI.txt
+set "DPS=%TMPDIR%\_sysbackup_hide.tmp"
+if exist "%~dp0HideRecoveryPartitions-UEFI.txt" (
+    > "%DPS%" echo select disk %_DESTINATION%
+    findstr /v /r /i /c:"^ *select *disk" "%~dp0HideRecoveryPartitions-UEFI.txt" >> "%DPS%"
+) else (
+    > "%DPS%" (
+        echo select disk %_DESTINATION%
+        echo select partition 4
+        echo set id="de94bba4-06d1-4d40-a16a-bfd50179d6ac"
+        echo gpt attributes=0x8000000000000001
+        echo remove letter="R"
+    )
+)
+diskpart /s "%DPS%"
+if errorlevel 1 echo WARNING: Hiding the recovery partition failed - not critical for booting.
+
+echo.
+echo Restore finished. Remove the backup drive and reboot into the restored Windows.
 goto :end
 
 
+rem ===========================================================================
+rem  Helpers
+rem ===========================================================================
+rem Sets TS=yyyy-MM-dd_HH-mm, locale independent where possible
+:makeTimestamp
+set "TS="
+set "LDT="
+for /f "tokens=2 delims==" %%T in ('wmic os get localdatetime /value 2^>nul ^| find "LocalDateTime"') do set "LDT=%%T"
+if defined LDT set "TS=%LDT:~0,4%-%LDT:~4,2%-%LDT:~6,2%_%LDT:~8,2%-%LDT:~10,2%"
+if defined TS exit /b 0
+for /f "delims=" %%T in ('powershell -NoProfile -NonInteractive -Command "Get-Date -Format yyyy-MM-dd_HH-mm" 2^>nul') do set "TS=%%T"
+if defined TS exit /b 0
+rem Last resort: locale dependent, sanitized for use in file names
+set "TS=%DATE%_%TIME:~0,5%"
+set "TS=%TS:/=-%"
+set "TS=%TS:.=-%"
+set "TS=%TS::=-%"
+set "TS=%TS: =%"
+exit /b 0
+
+
+rem ===========================================================================
+rem  Help
+rem ===========================================================================
 :help
 echo.
 echo Using the Backup and Restore script
 echo ===================================
 echo.
-echo 1. Backup
-echo ---------
+echo BACKUP  (B)
+echo   1. Boot the PC from the WinPE backup drive (e.g. press F12 for the
+echo      one-time boot menu and select the USB drive in UEFI mode).
+echo   2. Choose B, then enter the drive letter of the volume to back up -
+echo      typically the large Windows partition.
+echo   3. Optionally add a description; date and time are stored automatically
+echo      with every index.
+echo   4. Review the generated DISM configuration file. OneDrive and WSL folders
+echo      are excluded automatically; check for hidden OneDriveCloudTemp folders
+echo      (dir /a) and additional WSL packages and add them if needed.
+echo   5. The first run creates %backupWim%, later runs append a new index.
+echo      An index overview is written next to the WIM file after every run.
+echo   6. Verify the backup, ideally with a test restore on a similar PC, or at
+echo      least by mounting the WIM with dism /Mount-Image.
 echo.
-echo a) Plug the backup drive (currently Samsung Portable SSD T7 (USB-C with internal NVMe)) into a USB port on your PC. 
-echo    (Preferably to a USB-3 SuperSpeed, but not to a USB-C, even if it would be even faster. Tests with a DELL 
-echo    Precission 3660 workstation have shown that this then leads to I/O problems under WinPE with the DISM).
-echo b) Turn on the PC, press F12-key several times until the "One-Time-Boot-Menu" appears. Select "UEFI Samsung PSSD T7
-echo    Option" and boot from it.
-echo c) The backup and restore script should start automatically, if not, enter "backup". For advanced options, the 
-echo    script can also be terminated immediately and further CMD windows can be opened with "cmdus”, "cmdde" or "start", 
-echo    with which you can then do further things during the backup or intervene if problems occur. Otherwise, simply 
-echo    continue with "b". The letter of the drive to be backed up must then be entered. This is typically the large 
-echo    Windows partition. You can then enter a comment about the backup that may be helpful when restoring. It is not 
-echo    necessary to enter a date here, as every index in the WIM backup receives this information anyway. Last but not 
-echo    least, the backup.ini can be edited, which is then used as the DISM configuration file. This is where it really 
-echo    gets down to business. OneDrive and the subsystem for Linux are the things that cause the most problems here. So 
-echo    if OneDrive folders have already been found, it is worth checking whether hidden OneDriveCloudTemp folders exist 
-echo    alongside them. To do this, look in the corresponding path with dir /a. The critical files of the WSL (Windows 
-echo    Subsystem for Liunx) are typically located in a path such as: 
-echo    c:\Users\Joe\AppData\Local\Packages\CanonicalGroupLimited.Ubuntu_79rhkp. These folders should also be included 
-echo    in the [ExclusionList].
-echo d) After a successful backup, this should be tested on another, similar PC using the restore function. Alternatively, 
-echo    you can also first mount the WIM backup with DISM, as this can also be used to detect any problems. However, only 
-echo    a genuinely successful restore attempt can provide certainty.
+echo RESTORE  (R)  -  WinPE + UEFI only, ERASES the selected disk
+echo   1. Boot from the WinPE backup drive and choose R.
+echo   2. Select the index (restore point) to apply - usually the highest one.
+echo   3. Select the target disk number carefully - all data on it is erased.
+echo      The script shows the disk details first and refuses disks that
+echo      contain the backup storage volume.
+echo   4. The disk is repartitioned (UEFI layout), the image is applied and the
+echo      disk is made bootable.
 echo.
-echo 2. Restore
-echo ----------
+echo See README.md in this folder for the full documentation.
 echo.
-echo a) Plug the backup drive into a USB port of your PC and boot from it (for details see 1. Backup point a) and b))
-echo b) The restore part is selected with an "r". Then look into the backup.wim, where various indexes may be displayed. 
-echo    Each of these indexes hopefully represents a complete backup at the respective point in time, with a comment. 
-echo    Select the appropriate one here. Typically the last one, the index with the highest number.
-echo c) Finally, the corresponding mass storage device to which the backup will be unpacked must be selected. This is 
-echo    typically the built-in hard disk or SSD. You can use the size as a guide. Attention: the backup drive is almost 
-echo    2 terabytes in size. Selecting this would be fatal in an emergency. So extreme caution is required here. At the end
-echo    there are a few more keystrokes to be on the safe side, whereby you can still cancel with Ctrl+C in the event 
-echo    of an error. Then the corresponding drive is set up for the UEFI boot according to Windows 10 specifications, 
-echo    partitioned and provided with the backup. Finally, it is made bootable. The script should then finish properly, with 
-echo    the information from when to when it worked.
-echo.
-echo 3. Further Details and Troubleshooting
-echo --------------------------------------
-echo.
-echo Find this information in http://elog.aug.emrsn.org:8080/Windows/560
-echo.
-goto :firstquestion
+goto :mainMenu
 
 
+rem ===========================================================================
+rem  Exit paths
+rem ===========================================================================
+:quit
+set "RC=0"
+goto :cleanup
 
 :abort
-set startTime=%time%
-
+echo.
+echo ******************************************************************************
+echo   ABORTED - the operation did NOT complete. Check the messages above.
+echo ******************************************************************************
+set "RC=1"
+goto :cleanup
 
 :end
+set "RC=0"
 echo.
 echo ******************************************************************************
-echo Backup and Restore Script worked for you from %startTime:~0,-3% to %time:~0,-3%
-echo Please verify above output, especially if DISM (Deployment Image Servicing and
-echo Management tool) finished completely and successfully. 
+echo   %APP_NAME% worked for you from %startTime:~0,-3% to %time:~0,-3%
+echo   Please verify the output above, especially that DISM (Deployment Image
+echo   Servicing and Management tool) completed successfully.
 echo ******************************************************************************
-echo.
+goto :cleanup
+
+:cleanup
+del /q "%TMPDIR%\_sysbackup_*" 2>nul
+exit /b %RC%
