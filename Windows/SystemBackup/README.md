@@ -38,22 +38,21 @@
 3. The script starts automatically (or run `backup` manually). Choose **B** for backup.
 4. Enter the **drive letter of the volume to capture** — typically the large Windows partition (a `diskpart` volume list is shown first).
 5. Optionally enter a **description** for this restore point (no need for a date — each WIM index stores one automatically).
-6. Review the generated **`backup.ini`** exclusion config. OneDrive and WSL folders are pre-excluded, but double-check for hidden `OneDriveCloudTemp` folders (`dir /a`) and additional WSL paths like `C:\Users\<name>\AppData\Local\Packages\CanonicalGroupLimited.Ubuntu_...` — add them to `[ExclusionList]` if present.
-7. Confirm — DISM captures (first run) or appends (later runs) the image into `backup.wim`.
+6. Review the generated DISM exclusion config (shown on screen, editable in Notepad). OneDrive and WSL folders are pre-excluded per user profile, but double-check for hidden `OneDriveCloudTemp` folders (`dir /a`) and additional WSL paths like `C:\Users\<name>\AppData\Local\Packages\CanonicalGroupLimited.Ubuntu_...` — add them to `[ExclusionList]` if present. The config used for each run is archived as `backup_<timestamp>.ini` next to the WIM file.
+7. Confirm — DISM captures (first run) or appends (later runs) the image into `backup.wim`. If DISM fails, the script reports an error and exits with a non-zero exit code instead of pretending success.
 8. **Verify the backup**: ideally run a test restore on a similar PC, or at least mount the WIM with `dism /Mount-Image` and inspect it. Only a real restore proves the backup works.
 
 ### Restoring a backup
 
 > ⚠️ **This deletes ALL data on the selected target disk.** Read every prompt carefully.
 
-1. Boot the PC from the backup drive as above. Choose **R** for restore.
-2. The script lists all **indexes** inside `backup.wim` with their dates and descriptions. Pick the one you want — typically the highest (latest) index.
-3. Select the **target disk number** — typically the internal HDD/SSD. Use the disk sizes as guidance and make absolutely sure you do **not** select the backup drive itself!
+1. Boot the PC from the backup drive as above. Choose **R** for restore. The script first verifies it runs in **WinPE** and the PC is booted in **UEFI** mode.
+2. The script lists all **indexes** inside `backup.wim` with their dates and descriptions. Pick the one you want — typically the highest (latest) index. Invalid indexes are rejected.
+3. Select the **target disk number** — typically the internal HDD/SSD. The script shows the details of the selected disk for a visual check and **refuses disks that contain the backup storage volume**, so you cannot accidentally wipe your backups.
 4. Confirm the final safety prompts (you can still abort with `Ctrl+C`).
 5. The script then:
-   - verifies it runs in WinPE and the PC is booted in **UEFI** mode,
-   - partitions the target disk (UEFI layout per `CreatePartitions-UEFI.txt`),
-   - applies the selected WIM index to the Windows partition (`W:`),
+   - partitions the selected disk (UEFI layout — `CreatePartitions-UEFI.txt` if present, otherwise a built-in standard layout; the interactively chosen disk is always enforced),
+   - applies the selected WIM index to the Windows partition (`W:`) and **stops immediately if DISM fails**,
    - writes the boot files with `bcdboot` and puts Windows Boot Manager first in the UEFI boot order,
    - hides the recovery partition.
 6. When finished, check the output — especially that DISM completed successfully — then reboot into the restored Windows.
