@@ -18,7 +18,17 @@ Creates indexed, incremental full-system backups of a Windows installation into 
 
 ## Linux
 
-*(coming soon)*
+### [DataBackup](Linux/DataBackup/) — scheduled folder backups
+
+Backs up any number of folders to a local disk, USB drive, or mounted network share — either as browsable timestamped full copies or as space-saving hard-link snapshots (`rsync --link-dest`), where unchanged files are stored only once. Includes an interactive menu and systemd-timer/cron integration for fully automatic backups.
+
+➡️ Details: [Linux/DataBackup/README.md](Linux/DataBackup/README.md)
+
+### [SystemBackup](Linux/SystemBackup/) — full-system backup & restore
+
+Creates indexed, incremental full-system backups of a Linux root filesystem into chains of compressed tar archives (GNU tar `--listed-incremental`), with multi-core zstd/xz/pigz compression. Can restore a backup onto a (new) disk including GPT/UEFI partitioning, fstab regeneration, and GRUB setup — a complete bare-metal recovery solution.
+
+➡️ Details: [Linux/SystemBackup/README.md](Linux/SystemBackup/README.md)
 
 ## License
 

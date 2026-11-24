@@ -1,0 +1,5 @@
+# Shell scripts need LF, Windows batch files need CRLF
+*.sh   text eol=lf
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+*.md   text
