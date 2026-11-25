@@ -111,7 +111,9 @@ echo              files are stored only once, so each version only costs the cha
 echo              Requires administrator rights. Open/locked files make DISM fail,
 echo              so close applications that use the source data.
 echo(
-echo RESTORE (WIM mode, elevated console)
+echo RESTORE
+echo   Easiest and safest: restoreMyData.cmd - interactive wizard for both modes.
+echo   Manually in WIM mode, elevated console:
 echo   List versions : dism /Get-ImageInfo /ImageFile:"E:\Backup\Documents.wim"
 echo   Restore       : dism /Apply-Image /ImageFile:"E:\Backup\Documents.wim" /Index:3 /ApplyDir:"C:\Restore"
 echo   Browse        : dism /Mount-Image /ImageFile:"E:\Backup\Documents.wim" /Index:3 /MountDir:"C:\Mnt" /ReadOnly

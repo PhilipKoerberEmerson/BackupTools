@@ -1,6 +1,6 @@
 # DataBackup — BackupMyData for Windows 10 / 11
 
-`backupMyData.cmd` is a single, self-contained script that backs up any number of folders to a local disk, USB drive, or network share. No installation, no third-party tools — it only uses what ships with Windows (`robocopy`, `dism`, `schtasks`, `powershell`).
+`backupMyData.cmd` is a single, self-contained script that backs up any number of folders to a local disk, USB drive, or network share. Its companion `restoreMyData.cmd` safely restores any backup version. No installation, no third-party tools — it only uses what ships with Windows (`robocopy`, `dism`, `schtasks`, `powershell`).
 
 ## Features
 
@@ -57,7 +57,34 @@ SOURCE=D:\Projects          ; repeat SOURCE= for every folder
 
 > **Note:** Paths containing `!` are not supported. Log files are written to `<TARGET>\_logs`.
 
-## Restoring from a WIM backup
+## Restoring with restoreMyData.cmd (recommended)
+
+`restoreMyData.cmd` is an interactive restore wizard for both backup modes. Data safety comes first: it **only reads until you confirm the final restore plan**, and you can cancel at every step.
+
+```bat
+restoreMyData.cmd                        :: start the wizard (uses TARGET= from backupMyData.ini)
+restoreMyData.cmd /backup F:\Backup      :: restore from another location, e.g. USB disk with a new drive letter
+restoreMyData.cmd /cfg D:\other.ini      :: read the backup location from another configuration file
+```
+
+The wizard guides you through seven steps:
+
+1. **Backup location** — taken from `TARGET=` in `backupMyData.ini`, can be changed.
+2. **Backup type** — if both TIMESTAMP and WIM backups exist, you choose; the most recent one is shown.
+3. **Backup version** — newest first, the latest is marked. Pick an **older version** when something was deleted or damaged before the latest backup ran. The status of every version (OK / warnings / errors / incomplete) is read from `<TARGET>\_logs\backup_*.log`.
+4. **Backed-up folder** — one of the `SOURCE` folders; its original location comes from the backup log.
+5. **What to restore** — everything, a single sub-folder, or a single file. You can browse the backup in Explorer first.
+6. **Destination and method**
+   - `[1]` a **new, empty folder** — safest, nothing existing is touched (recommended)
+   - `[2]` original location, **only add missing files** — existing files stay unchanged
+   - `[3]` original location, **replace files that differ** — shows the list of affected files, offers a **safety copy** of every file before it is replaced (`<destination>_before_restore_<timestamp>`), and starts only after you type `OVERWRITE`
+7. **Restore plan** — files and size in MB/GB to copy, files left unchanged or replaced, free space on the destination. **The restore does not start if the free space is insufficient** (data + 5 % + 64 MB headroom) or if a FAT32 destination cannot hold files ≥ 4 GB.
+
+Files that exist only at the destination are **never deleted** by any method. Restores are logged to `<TARGET>\_logs\restore_<timestamp>.log` (or `%TEMP%` if the backup location is read-only).
+
+> **Note:** WIM restores need administrator rights — the wizard offers to restart elevated. The selected image is mounted read-only under `%TEMP%` and unmounted afterwards; after an interrupted run, clean up with `dism /Cleanup-Mountpoints` in an elevated console. Mapped network drives are not visible in an elevated console — use a `\\server\share` path.
+
+## Restoring manually from a WIM backup
 
 In an elevated console:
 

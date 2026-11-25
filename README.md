@@ -6,7 +6,7 @@ A collection of small, dependency-free backup tools for everyday use. Each tool 
 
 ### [DataBackup](Windows/DataBackup/) — scheduled folder backups
 
-Backs up any number of folders to a local disk, USB drive, or network share — either as browsable timestamped full copies (robocopy) or as space-saving incremental WIM images (DISM). Includes an interactive menu and Task Scheduler integration for fully automatic backups. Uses only tools that ship with Windows 10 / 11.
+Backs up any number of folders to a local disk, USB drive, or network share — either as browsable timestamped full copies (robocopy) or as space-saving incremental WIM images (DISM). Includes an interactive menu and Task Scheduler integration for fully automatic backups. A separate, safety-first restore wizard (`restoreMyData.cmd`) restores any backup version — completely, a sub-folder, or a single file — after a free-space check. Uses only tools that ship with Windows 10 / 11.
 
 ➡️ Details: [Windows/DataBackup/README.md](Windows/DataBackup/README.md)
 
