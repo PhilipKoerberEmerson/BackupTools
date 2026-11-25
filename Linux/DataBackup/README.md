@@ -12,6 +12,8 @@ It is the Linux twin of the [Windows DataBackup tool](../../Windows/DataBackup/R
 - ⏰ **Automatic backups** via **systemd timer** (preferred, with `Persistent=true` to catch up missed runs) or an `/etc/cron.d` entry as fallback — daily, weekly, or at boot.
 - 🖱️ **Interactive menu** for configuration, manual runs, schedule management, and status — or fully scriptable via command-line options.
 - 📝 **Logging** to `<TARGET>/_logs` with per-run log files and meaningful exit codes.
+- **Live activity** in interactive terminals while scanning and copying, with a spinner and elapsed time. Scheduled or redirected runs have no spinner noise.
+- **Free-space preflight** using an rsync dry run, accounting for unchanged SNAPSHOT files and target exclusions. Copying is stopped if the estimated data plus 5% and 64 MiB of headroom exceeds available space.
 - 🔧 **Plain-text configuration** in a `.conf` file next to the script — same format as the Windows tool.
 
 ## Quick start
@@ -72,4 +74,18 @@ rsync -a /mnt/backup/snapshots/latest/Documents/ /home/me/Documents/
 
 - SNAPSHOT mode needs a target filesystem that supports hard links (ext4, xfs, btrfs, …) — **not** FAT/exFAT. Deleting an old snapshot never breaks newer ones; the data of a file is only freed when the last snapshot referencing it is removed.
 - If the backup target lies inside a source folder, it is excluded automatically.
-- rsync exit codes 23/24 (partial transfer, e.g. files vanished while reading) are reported as warnings; everything else fails the run.
+- The space estimate requires an extra scan before copying. It is not a guarantee: source changes, filesystem metadata/block allocation, quotas, or other programs can still fill the disk. Partial scans are explicitly warned about.
+- Disk-full and quota errors are reported in plain language in both the console and log, and fail the run even if rsync reports a partial-transfer exit code. Free space or choose a larger destination before retrying; incomplete backup folders are not deleted automatically.
+- A working log is kept in the system temporary directory (its path is printed at startup), then saved to `<TARGET>/_logs` at the end. If saving fails, the complete temporary log is retained and its location is printed. Copy it somewhere permanent before the system cleans temporary files.
+- FAT/exFAT destinations cannot preserve Linux symlinks and special files, and may reject Linux filenames. Use a Linux filesystem such as ext4 for faithful home-folder backups; TIMESTAMP mode does not remove these filesystem restrictions.
+- rsync exit codes 23/24 (partial transfer, e.g. files vanished while reading) are reported as warnings unless the output identifies exhausted space/quota; everything else fails the run. Fatal transfer errors stop copying further sources.
+
+## Tests
+
+On Linux with `bash`, `rsync`, GNU coreutils and util-linux (`script`):
+
+```bash
+bash tests/backupMyData.test.sh
+```
+
+Tests use temporary folders for real copies and snapshots, plus simulated free-space, disk-full/quota and log-write failures. Terminal activity is checked using a pseudo-terminal; no backup media is modified.

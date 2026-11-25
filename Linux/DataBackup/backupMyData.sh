@@ -80,6 +80,9 @@ CONFIGURATION FILE (created by --setup, may be edited manually)
   SOURCE=/home/me/Documents
   SOURCE=/srv/projects        repeat SOURCE= for every folder
   Log files are written to <TARGET>/_logs.
+  Before copying, a dry run estimates required space (including snapshot
+  savings), plus 5% and 64 MiB headroom. Insufficient space stops the run.
+  Interactive terminals show activity while estimating and copying.
 
 EXIT CODES
   0 = success   1 = completed with warnings   2 = error
@@ -187,16 +190,114 @@ unique_name() {  # derive a unique folder name for source $1 within this run
     NAME="$n"
 }
 
+with_activity() (  # with_activity <label> <output file> <command...>
+    local label="$1" output="$2"; shift 2
+    if [[ ! -t 1 ]]; then
+        "$@" >"$output" 2>&1
+        return $?
+    fi
+    local pid rc frame=0 started=$SECONDS
+    local frames=('|' '/' '-' "\\")
+    "$@" >"$output" 2>&1 &
+    pid=$!
+    trap 'kill -TERM "$pid" 2>/dev/null; wait "$pid"; printf "\r\033[K"; exit 130' INT
+    trap 'kill -TERM "$pid" 2>/dev/null; wait "$pid"; printf "\r\033[K"; exit 143' TERM
+    while kill -0 "$pid" 2>/dev/null; do
+        printf '\r%s %s (%ss elapsed)' "${frames[frame % 4]}" "$label" "$((SECONDS-started))"
+        frame=$((frame+1))
+        sleep 0.2
+    done
+    wait "$pid"; rc=$?
+    printf '\r\033[K'
+    return "$rc"
+)
+
+rsync_options() {  # shared by the estimate and the actual copy
+    local src="$1" prev="$2" name="$3"
+    RSYNC_OPTS=()
+    [[ -n $prev && -d $prev/$name ]] && RSYNC_OPTS+=(--link-dest "$prev/$name")
+    [[ $TARGET == "$src"/* ]] && RSYNC_OPTS+=(--exclude "/${TARGET#"$src"/}")
+    return 0
+}
+
+report_rsync_error() {
+    local src="$1" rc="$2" output="$3"
+    if grep -Eq 'No space left on device|Disk quota exceeded' "$output"; then
+        log "ERROR: Backup destination [$TARGET] is out of free space or its storage quota is exhausted. Backup is incomplete. Free space or choose a larger destination, then run the backup again."
+        ERR=$((ERR+1))
+    else
+        case $rc in
+            23|24) log "WARNING: Some files could not be backed up from [$src] (rsync exit $rc). Files may have changed, access may be denied, or the destination filesystem may not support Linux symlinks, special files or filenames. See the rsync details in the log."
+                   WARN=$((WARN+1)) ;;
+            11)    log "ERROR: Cannot read or write backup data for [$src] (rsync exit 11). Check destination free space, permissions and disk health; see the log for details."
+                   ERR=$((ERR+1)) ;;
+            *)     log "ERROR: rsync failed for [$src] with exit code $rc; see the log for details."
+                   ERR=$((ERR+1)) ;;
+        esac
+    fi
+}
+
+check_space() {
+    local ts="$1" dest_root="$TARGET/$1" prev="" src estimate rc
+    local total=0 available required headroom
+    [[ $MODE == SNAPSHOT ]] && dest_root="$TARGET/snapshots/$ts"
+    if [[ $MODE == SNAPSHOT && -d $TARGET/snapshots/latest ]]; then
+        prev="$(readlink -f "$TARGET/snapshots/latest")"
+    fi
+    mkdir -p "$dest_root" || { log "ERROR: Cannot create $dest_root. Check free space and permissions."; ERR=$((ERR+1)); return 1; }
+    log "Estimating backup space (scanning source folders; no files are copied)..."
+    for src in "${SOURCES[@]}"; do
+        [[ -d $src ]] || continue
+        unique_name "$src"
+        local RSYNC_OPTS=()
+        rsync_options "$src" "$prev" "$NAME"
+        with_activity "Estimating [$src]" "$LOG.rsync" \
+            env LC_ALL=C rsync -aH --dry-run --stats --no-human-readable \
+            "${RSYNC_OPTS[@]}" "$src/" "$dest_root/$NAME/"
+        rc=$?
+        cat "$LOG.rsync" >>"$LOG"
+        if (( rc != 0 )); then
+            report_rsync_error "$src" "$rc" "$LOG.rsync"
+            if (( rc != 23 && rc != 24 )) || (( ERR > 0 )); then
+                return 1
+            fi
+            log "WARNING: Space estimate may be incomplete because some source files could not be scanned."
+        fi
+        estimate="$(sed -n 's/^Total transferred file size: \([0-9][0-9]*\) bytes$/\1/p' "$LOG.rsync")"
+        if [[ ! $estimate =~ ^[0-9]+$ ]]; then
+            log "ERROR: Cannot determine required backup space for [$src]. Backup stopped before copying."
+            ERR=$((ERR+1)); return 1
+        fi
+        total=$((total+estimate))
+    done
+    USED=()
+    available="$(LC_ALL=C df -B1 --output=avail "$TARGET" 2>>"$LOG")"
+    rc=$?
+    available="${available##*$'\n'}"
+    available="${available//[[:space:]]/}"
+    if (( rc != 0 )) || [[ ! $available =~ ^[0-9]+$ ]]; then
+        log "ERROR: Cannot read free space on [$TARGET]. Backup stopped before copying."
+        ERR=$((ERR+1)); return 1
+    fi
+    headroom=$((total/20+64*1024*1024))
+    required=$((total+headroom))
+    log "Space check: estimated data $total bytes ($(numfmt --to=iec-i --suffix=B "$total")); required with headroom $(numfmt --to=iec-i --suffix=B "$required"); available $(numfmt --to=iec-i --suffix=B "$available")."
+    if (( required > available )); then
+        log "ERROR: Not enough free space on backup destination [$TARGET]. Need approximately $(numfmt --to=iec-i --suffix=B "$required") including headroom, but only $(numfmt --to=iec-i --suffix=B "$available") is available. Free space or choose a larger destination. Backup stopped before copying."
+        ERR=$((ERR+1)); return 1
+    fi
+    log "Space check passed. This is an estimate; source changes, filesystem overhead or other programs can still exhaust free space."
+}
+
 run_rsync() {  # run_rsync <src> <dst> [extra rsync options...]
     local src="$1" dst="$2"; shift 2
-    rsync -aH --info=stats1 "$@" "$src/" "$dst/" >>"$LOG" 2>&1
+    with_activity "Backing up [$src]" "$LOG.rsync" \
+        env LC_ALL=C rsync -aH --info=stats1 "$@" "$src/" "$dst/"
     local rc=$?
+    cat "$LOG.rsync" >>"$LOG"
     case $rc in
-        0)     log "OK: [$src] rsync exit code 0" ;;
-        23|24) log "WARNING: rsync reported a partial transfer for [$src] (exit $rc)"
-               WARN=$((WARN+1)) ;;
-        *)     log "ERROR: rsync failed for [$src] with exit code $rc"
-               ERR=$((ERR+1)) ;;
+        0) log "OK: [$src] rsync exit code 0" ;;
+        *) report_rsync_error "$src" "$rc" "$LOG.rsync" ;;
     esac
 }
 
@@ -208,11 +309,11 @@ backup_timestamp() {
             log "WARNING: Source not found, skipped: $src"; WARN=$((WARN+1)); continue
         fi
         unique_name "$src"
-        local opts=()
-        [[ $TARGET == "$src"/* ]] && opts+=(--exclude "/${TARGET#"$src"/}")
+        local RSYNC_OPTS=()
+        rsync_options "$src" "" "$NAME"
         log "Copying [$src] to [$dest_root/$NAME]"
-        mkdir -p "$dest_root/$NAME"
-        run_rsync "$src" "$dest_root/$NAME" ${opts[@]+"${opts[@]}"}
+        run_rsync "$src" "$dest_root/$NAME" "${RSYNC_OPTS[@]}"
+        (( ERR > 0 )) && break
     done
 }
 
@@ -226,12 +327,11 @@ backup_snapshot() {
             log "WARNING: Source not found, skipped: $src"; WARN=$((WARN+1)); continue
         fi
         unique_name "$src"
-        local opts=()
-        [[ -n $prev && -d $prev/$NAME ]] && opts+=(--link-dest "$prev/$NAME")
-        [[ $TARGET == "$src"/* ]] && opts+=(--exclude "/${TARGET#"$src"/}")
+        local RSYNC_OPTS=()
+        rsync_options "$src" "$prev" "$NAME"
         log "Snapshotting [$src] to [$dest/$NAME]${prev:+ (hard-linking unchanged files)}"
-        mkdir -p "$dest/$NAME"
-        run_rsync "$src" "$dest/$NAME" ${opts[@]+"${opts[@]}"}
+        run_rsync "$src" "$dest/$NAME" "${RSYNC_OPTS[@]}"
+        (( ERR > 0 )) && break
     done
     if (( ERR == 0 )); then
         ln -sfn "$dest" "$snap_root/latest"
@@ -243,20 +343,35 @@ do_backup() {
     load_config || { echo "ERROR: Configuration not found: $CFG. Run '$SELF --setup' first."; return 2; }
     validate_config || return 2
     command -v rsync >/dev/null || { echo "ERROR: rsync is not installed."; return 2; }
-    local ts; ts="$(date +%F_%H-%M-%S)"
+    local ts work_dir final_log; ts="$(date +%F_%H-%M-%S)"
+    TARGET="$(readlink -m "$TARGET")"
     mkdir -p "$TARGET" 2>/dev/null
     [[ -d $TARGET && -w $TARGET ]] || { echo "ERROR: Backup target not reachable or not writable: $TARGET"; return 2; }
-    mkdir -p "$TARGET/_logs"
-    LOG="$TARGET/_logs/backup_$ts.log"
+    work_dir="$(mktemp -d)" || { echo "ERROR: Cannot create temporary backup log directory."; return 2; }
+    LOG="$work_dir/backup_$ts.log"
+    final_log="$TARGET/_logs/backup_$ts.log"
     WARN=0; ERR=0; USED=()
     log "===== $APP_NAME v$APP_VERSION - backup started ====="
     log "Host: $(hostname)  User: $(id -un)  Mode: $MODE  Target: $TARGET"
-    if [[ $MODE == SNAPSHOT ]]; then backup_snapshot "$ts"; else backup_timestamp "$ts"; fi
+    log "Working log (also available if the destination fills up): $LOG"
+    if check_space "$ts"; then
+        if [[ $MODE == SNAPSHOT ]]; then backup_snapshot "$ts"; else backup_timestamp "$ts"; fi
+    fi
     local rc=0
     (( WARN > 0 )) && rc=1
     (( ERR  > 0 )) && rc=2
     log "===== Backup finished: $ERR error(s), $WARN warning(s), exit code $rc ====="
-    echo "Log file: $LOG"
+    if { mkdir -p "$TARGET/_logs" && cp "$LOG" "$final_log"; } 2>"$LOG.rsync"; then
+        echo "Log file: $final_log"
+        rm -f "$LOG" "$LOG.rsync"
+        rmdir "$work_dir"
+    else
+        cat "$LOG.rsync" >>"$LOG"
+        log "ERROR: Cannot save the log to [$final_log]. The destination may be full or not writable. Complete log retained at: $LOG"
+        ERR=$((ERR+1)); rc=2
+        log "===== Backup finished: $ERR error(s), $WARN warning(s), exit code $rc ====="
+        echo "Log file: $LOG"
+    fi
     return $rc
 }
 
