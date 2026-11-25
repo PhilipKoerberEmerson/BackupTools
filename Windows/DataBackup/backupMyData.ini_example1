@@ -1,7 +1,8 @@
 ; BackupMyData configuration - written Thu 11/19/2026 13:58:38.55
 ; MODE = TIMESTAMP or WIM, WIM_COMPRESS = none, fast or max
 ; Add one SOURCE= line per folder to back up.
-TARGET=D:\Backup
+TARGET=D:\ProgramDataBackup
 MODE=TIMESTAMP
 WIM_COMPRESS=max
-SOURCE=C:\Dell
+SOURCE=C:\Program Files
+SOURCE=C:\ProgramData
