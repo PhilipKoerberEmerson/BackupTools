@@ -1,6 +1,6 @@
 ﻿# BackupTools
 
-A collection of small, dependency-free backup tools for everyday use. Each tool lives in its own folder with a detailed README — this page only gives a short overview.
+A collection of small, dependency-free backup tools for everyday use. Each tool lives in its own folder with a detailed README — this page gives just a short overview.
 
 ## Windows
 
