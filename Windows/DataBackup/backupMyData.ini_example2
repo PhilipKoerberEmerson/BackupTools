@@ -1,0 +1,9 @@
+; BackupMyData configuration - written Wed 11/25/2026 12:26:49.13
+; MODE = TIMESTAMP or WIM, WIM_COMPRESS = none, fast or max
+; Add one SOURCE= line per folder to back up.
+TARGET=C:\DataBackup
+MODE=WIM
+WIM_COMPRESS=fast
+SOURCE=C:\Users\PK\Downloads
+SOURCE=C:\Users\PK\Desktop
+SOURCE=C:\Program Files
