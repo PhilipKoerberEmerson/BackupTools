@@ -202,8 +202,8 @@ echo       the Windows partition) and applies the backup to it. The partition
 echo       layout and all other partitions stay untouched.
 choice /c DPX /m "Choose D (disk), P (partition) or X (back to menu)"
 if errorlevel 3 goto :mainMenu
-set "_RESTORE_MODE=disk"
-if errorlevel 2 set "_RESTORE_MODE=partition"
+rem In .cmd files a successful SET resets ERRORLEVEL to 0 - evaluate it first
+if errorlevel 2 (set "_RESTORE_MODE=partition") else set "_RESTORE_MODE=disk"
 if "%_RESTORE_MODE%"=="disk" if not "%Firmware%"=="0x2" (
     echo ERROR: The PC is booted in legacy BIOS mode - disk restore supports UEFI only.
     goto :mainMenu
@@ -246,7 +246,7 @@ if not errorlevel 1 (
     echo   ERROR: Disk %_DESTINATION% contains the backup storage volume %bigWimVolume%: -
     echo          restoring onto it would destroy your backups. Choose another disk.
     echo          To restore only the Windows partition of this disk, go back to
-    echo          the menu (X) and use partition restore (P) instead.
+    echo          the menu ^(X^) and use partition restore ^(P^) instead.
     goto :selectDisk
 )
 

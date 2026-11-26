@@ -1,0 +1,120 @@
+D:\>backupMySystem.cmd
+
+******************************************************************************
+        SystemBackup v2.1.0 - Windows Backup and Restore Script
+        Note: Restore requires WinPE, disk restore a PC in UEFI mode
+******************************************************************************
+
+Backup storage: D:\backup.wim
+
+Choose B to create a backup, R to restore, Q to quit, H for help [B,R,Q,H]?R
+
+******************************************************************************
+        Restore selected
+******************************************************************************
+
+Restore modes:
+  D = Disk restore (bare metal): ERASES the WHOLE disk, repartitions it
+      (UEFI layout), applies the backup and makes the disk bootable.
+  P = Partition restore: re-formats ONLY the selected partition (typically
+      the Windows partition) and applies the backup to it. The partition
+      layout and all other partitions stay untouched.
+Choose D (disk), P (partition) or X (back to menu) [D,P,X]?P
+
+Available restore points in D:\backup.wim:
+
+Deployment Image Servicing and Management tool
+Version: 10.0.18362.1
+
+Details for image : D:\backup.wim
+
+Index : 1
+Name : Backup 2026-11-26_06-10
+Description : Backup from 2026-11-26_06-10 Win11backupMadeWithWin10PE
+Size : 70,968,803,144 bytes
+
+Index : 2
+Name : Backup 2026-11-26_06-29
+Description : Backup from 2026-11-26_06-29 mit Virus auf dem Desktop
+Size : 69,419,171,395 bytes
+
+The operation completed successfully.
+Index of the backup to restore (usually the highest): 1
+
+Deployment Image Servicing and Management tool
+Version: 10.0.18362.1
+
+Details for image : D:\backup.wim
+
+Index : 1
+Name : Backup 2026-11-26_06-10
+Description : Backup from 2026-11-26_06-10 Win11backupMadeWithWin10PE
+Size : 70,968,803,144 bytes
+WIM Bootable : No
+Architecture : x64
+Hal : COMPUTER\Generic
+Version : 10.0.26100
+ServicePack Build : 9974
+ServicePack Level : 0
+Edition : IoTEnterpriseS
+Installation : Client
+ProductType : WinNT
+ProductSuite : Terminal Server
+System Root : WINDOWS
+Directories : 50377
+Files : 224798
+Created : 11/26/2026 - 6:21:11 AM
+Modified : 11/26/2026 - 6:21:12 AM
+Languages :
+        en-US (Default)
+
+The operation completed successfully.
+
+Disks on this system:
+
+Microsoft DiskPart version 10.0.18362.1
+
+Copyright (C) Microsoft Corporation.
+On computer: MINWINPC
+
+DISKPART>
+  Disk ###  Status         Size     Free     Dyn  Gpt
+  --------  -------------  -------  -------  ---  ---
+  Disk 0    Online          119 GB  1024 KB        *
+  Disk 1    No Media           0 B      0 B
+  Disk 2    Online         7656 MB      0 B
+
+DISKPART> Number of the disk to restore onto (X = back to menu): 0
+
+Microsoft DiskPart version 10.0.18362.1
+
+Copyright (C) Microsoft Corporation.
+On computer: MINWINPC
+
+Disk 0 is now the selected disk.
+
+TS128GMTE452TI-ICC
+Disk ID: {04E52DBB-0425-4E36-A8B4-CDE23A1FA978}
+Type   : NVMe
+Status : Online
+Path   : 0
+Target : 0
+LUN ID : 0
+Location Path : PCIROOT(0)#PCI(0602)#PCI(0000)#NVME(P00T00L00)
+Current Read-only State : No
+Read-only  : No
+Boot Disk  : No
+Pagefile Disk  : No
+Hibernation File Disk  : No
+Crashdump Disk  : No
+Clustered Disk  : No
+
+  Volume ###  Ltr  Label        Fs     Type        Size     Status     Info
+  ----------  ---  -----------  -----  ----------  -------  ---------  --------
+  Volume 1     C   Windows      NTFS   Partition     88 GB  Healthy
+  Volume 2     D   BACKUP       NTFS   Partition     29 GB  Healthy
+  Volume 3         SYSTEM       FAT32  Partition    260 MB  Healthy    Hidden
+  Volume 6         Recovery     NTFS   Partition   1000 MB  Healthy    Hidden
+and was unexpected at this time.
+
+D:\>
