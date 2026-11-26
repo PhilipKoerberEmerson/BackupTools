@@ -81,6 +81,7 @@ Choose **R** for restore, then pick the restore mode:
 6. Reboot into the restored Windows.
 
 Notes:
+- **Backup on the same disk:** partition restore also works when `backup.wim` lives on another partition of the *same* disk (e.g. one big SSD with EFI, MSR, Windows, Recovery and a data partition holding the backup). Only the backup volume itself is refused as a target. Disk restore (D) refuses such a disk, since it would wipe the backup.
 - **BitLocker:** a locked volume is not accessible in WinPE. Unlock it first, e.g. `manage-bde -unlock C: -RecoveryPassword <key>`. After the restore, the volume is **not encrypted** — re-enable BitLocker in Windows if needed.
 - The backup should originate from the **same PC** (or one with an identical partition layout); the Windows Recovery Environment configuration in the image refers to the recovery partition of the original disk.
 

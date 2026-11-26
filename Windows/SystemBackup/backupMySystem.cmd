@@ -245,6 +245,8 @@ if not errorlevel 1 (
     echo.
     echo   ERROR: Disk %_DESTINATION% contains the backup storage volume %bigWimVolume%: -
     echo          restoring onto it would destroy your backups. Choose another disk.
+    echo          To restore only the Windows partition of this disk, go back to
+    echo          the menu (X) and use partition restore (P) instead.
     goto :selectDisk
 )
 
