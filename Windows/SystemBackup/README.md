@@ -1,8 +1,8 @@
 ﻿# SystemBackup — WinPE-based Windows System Backup & Restore
 
-`backup.cmd` is an interactive script that creates **indexed, incremental full-system backups** of a Windows installation into a single WIM file, and can **restore** them onto a (new) disk — including partitioning and making it bootable. It runs from **WinPE** and uses only built-in Windows tools (`dism`, `diskpart`, `bcdboot`, `bcdedit`).
+`backup.cmd` is an interactive script that creates **indexed, incremental full-system backups** of a Windows installation into a single WIM file, and can **restore** them either onto a whole (new) disk — including partitioning and making it bootable (bare-metal recovery) — or onto a **single existing partition** when the disk layout is still intact. It runs from **WinPE** and uses only built-in Windows tools (`dism`, `diskpart`, `bcdboot`, `bcdedit`).
 
-> ⚠️ **Restore is UEFI-only.** The restore part partitions the target disk for UEFI boot and refuses to run on BIOS/legacy-booted systems.
+> ⚠️ **Disk restore is UEFI-only.** It partitions the target disk for UEFI boot and refuses to run on BIOS/legacy-booted systems. Partition restore also works in legacy BIOS mode, but then does not refresh the boot files.
 
 ## How it works
 
@@ -44,9 +44,18 @@
 
 ### Restoring a backup
 
+Choose **R** for restore, then pick the restore mode:
+
+| Mode | When to use | What is erased |
+|------|-------------|----------------|
+| **D** — Disk restore (bare metal) | New/empty disk, broken partition table, disaster recovery | The **whole** selected disk |
+| **P** — Partition restore | The PC still has its partitions (EFI, MSR, Windows, Recovery) but Windows itself is broken or should be rolled back | **Only** the selected partition |
+
+#### Disk restore (D)
+
 > ⚠️ **This deletes ALL data on the selected target disk.** Read every prompt carefully.
 
-1. Boot the PC from the backup drive as above. Choose **R** for restore. The script first verifies it runs in **WinPE** and the PC is booted in **UEFI** mode.
+1. Boot the PC from the backup drive as above. Choose **R**, then **D**. The script first verifies it runs in **WinPE** and the PC is booted in **UEFI** mode.
 2. The script lists all **indexes** inside `backup.wim` with their dates and descriptions. Pick the one you want — typically the highest (latest) index. Invalid indexes are rejected.
 3. Select the **target disk number** — typically the internal HDD/SSD. The script shows the details of the selected disk for a visual check and **refuses disks that contain the backup storage volume**, so you cannot accidentally wipe your backups.
 4. Confirm the final safety prompts (you can still abort with `Ctrl+C`).
@@ -56,6 +65,24 @@
    - writes the boot files with `bcdboot` and puts Windows Boot Manager first in the UEFI boot order,
    - hides the recovery partition.
 6. When finished, check the output — especially that DISM completed successfully — then reboot into the restored Windows.
+
+#### Partition restore (P)
+
+> ⚠️ **This deletes ALL data on the selected partition** — other partitions and the partition table are not touched.
+
+1. Boot the PC from the backup drive. Choose **R**, then **P** (the script verifies it runs in **WinPE**).
+2. Pick the **index** to restore, as above.
+3. A `diskpart` volume list is shown. Enter the **drive letter of the partition to restore** — note that in WinPE the Windows partition often does *not* have the letter `C:`; identify it by label and size. The script shows the volume details, refuses the backup storage volume and the script/boot drive, and warns if the volume contains no `\Windows\System32` folder.
+4. Confirm the final safety prompts (you can still abort with `Ctrl+C`).
+5. The script then:
+   - quick-formats the volume as NTFS (label `Windows`) — this ensures no stale files of the old installation remain,
+   - applies the selected WIM index to it and **stops immediately if DISM fails**,
+   - on UEFI systems: temporarily assigns a letter to the **EFI system partition of the same disk**, refreshes the boot files with `bcdboot /f UEFI`, and removes the letter again. If this step fails, a warning with the manual `bcdboot` command is shown — the existing boot entry usually keeps working anyway, because the partition itself is unchanged.
+6. Reboot into the restored Windows.
+
+Notes:
+- **BitLocker:** a locked volume is not accessible in WinPE. Unlock it first, e.g. `manage-bde -unlock C: -RecoveryPassword <key>`. After the restore, the volume is **not encrypted** — re-enable BitLocker in Windows if needed.
+- The backup should originate from the **same PC** (or one with an identical partition layout); the Windows Recovery Environment configuration in the image refers to the recovery partition of the original disk.
 
 ## Tips & troubleshooting
 

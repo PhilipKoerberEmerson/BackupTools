@@ -3,13 +3,14 @@ rem ===========================================================================
 rem  backup.cmd - Windows full-system backup and restore (WinPE / DISM)
 rem
 rem  Creates indexed, incremental full-system backups of a Windows volume into
-rem  a single WIM file and restores them onto a disk, including UEFI
-rem  partitioning and boot setup.
+rem  a single WIM file and restores them either onto a whole disk (bare metal,
+rem  including UEFI partitioning and boot setup) or onto a single existing
+rem  partition (the partition layout stays untouched).
 rem
 rem  Requirements
 rem    - Backup storage: a big NTFS volume with an (empty) marker file
 rem      "bigWimVolume.txt" in its root. The script finds it automatically.
-rem    - Restore only works from WinPE on a PC booted in UEFI mode.
+rem    - Restore only works from WinPE; disk restore requires UEFI mode.
 rem
 rem  Optional companion files (built-in defaults are used when missing)
 rem    - <UFDV>:\scripts\ExclusionList.ini             DISM [ExclusionList]
@@ -23,7 +24,7 @@ rem  See README.md for the full documentation.
 rem ===========================================================================
 setlocal EnableExtensions
 set "APP_NAME=SystemBackup"
-set "APP_VERSION=2.0.0"
+set "APP_VERSION=2.1.0"
 set "backupWim=backup.wim"
 set "RC=1"
 set "startTime=%time%"
@@ -36,7 +37,7 @@ title %APP_NAME% v%APP_VERSION%
 echo.
 echo ******************************************************************************
 echo         %APP_NAME% v%APP_VERSION% - Windows Backup and Restore Script
-echo         Note: Restore requires WinPE and a PC booted in UEFI mode
+echo         Note: Restore requires WinPE, disk restore a PC in UEFI mode
 echo ******************************************************************************
 echo.
 
@@ -178,7 +179,7 @@ rem ===========================================================================
 :restore
 echo.
 echo ******************************************************************************
-echo         Restore selected - ATTENTION: this will ERASE the target disk!
+echo         Restore selected
 echo ******************************************************************************
 echo.
 if not exist "%bigWimVolume%:\%backupWim%" (
@@ -192,11 +193,23 @@ if not exist X:\Windows\System32\ (
 wpeutil UpdateBootInfo >nul 2>&1
 set "Firmware="
 for /f "tokens=3" %%A in ('reg query HKLM\System\CurrentControlSet\Control /v PEFirmwareType ^| find "PEFirmwareType"') do set "Firmware=%%A"
-if not "%Firmware%"=="0x2" (
-    echo ERROR: The PC is booted in legacy BIOS mode - restore supports UEFI only.
+
+echo Restore modes:
+echo   D = Disk restore (bare metal): ERASES the WHOLE disk, repartitions it
+echo       (UEFI layout), applies the backup and makes the disk bootable.
+echo   P = Partition restore: re-formats ONLY the selected partition (typically
+echo       the Windows partition) and applies the backup to it. The partition
+echo       layout and all other partitions stay untouched.
+choice /c DPX /m "Choose D (disk), P (partition) or X (back to menu)"
+if errorlevel 3 goto :mainMenu
+set "_RESTORE_MODE=disk"
+if errorlevel 2 set "_RESTORE_MODE=partition"
+if "%_RESTORE_MODE%"=="disk" if not "%Firmware%"=="0x2" (
+    echo ERROR: The PC is booted in legacy BIOS mode - disk restore supports UEFI only.
     goto :mainMenu
 )
 
+echo.
 echo Available restore points in %bigWimVolume%:\%backupWim%:
 dism /Get-WimInfo /WimFile:"%bigWimVolume%:\%backupWim%"
 :selectIndex
@@ -206,7 +219,9 @@ set "_SELECTED_INDEX=%_SELECTED_INDEX:"=%"
 echo %_SELECTED_INDEX%| findstr /r /c:"^[1-9][0-9]*$" >nul || (echo   Please enter a valid index number. & goto :selectIndex)
 dism /Get-WimInfo /WimFile:"%bigWimVolume%:\%backupWim%" /Index:%_SELECTED_INDEX%
 if errorlevel 1 (echo   Index %_SELECTED_INDEX% does not exist in the backup. & goto :selectIndex)
+if "%_RESTORE_MODE%"=="partition" goto :restorePartition
 
+rem --- Disk restore (bare metal) ----------------------------------------------
 echo.
 echo Disks on this system:
 echo list disk | diskpart
@@ -318,8 +333,126 @@ goto :end
 
 
 rem ===========================================================================
+rem  Partition restore - only the selected volume is re-formatted
+rem ===========================================================================
+:restorePartition
+echo.
+echo Volumes on this system:
+echo list volume | diskpart
+:selectTargetVolume
+set "_TARGETVOL="
+set "_TARGETDISK="
+set /p "_TARGETVOL=Drive letter of the partition to restore (X = back to menu): "
+if not defined _TARGETVOL goto :selectTargetVolume
+set "_TARGETVOL=%_TARGETVOL::=%"
+set "_TARGETVOL=%_TARGETVOL:"=%"
+if /i "%_TARGETVOL%"=="X" goto :mainMenu
+echo %_TARGETVOL%| findstr /r /i /c:"^[A-Z]$" >nul || (echo   Please enter a single drive letter, e.g. C. & goto :selectTargetVolume)
+if /i "%_TARGETVOL%"=="%bigWimVolume%" (echo   %_TARGETVOL%: is the backup storage volume itself - choose another one. & goto :selectTargetVolume)
+if /i "%_TARGETVOL%"=="%UFDV%" (echo   %_TARGETVOL%: is the drive this script runs from - choose another one. & goto :selectTargetVolume)
+if /i "%_TARGETVOL%:"=="%~d0" (echo   %_TARGETVOL%: is the drive this script runs from - choose another one. & goto :selectTargetVolume)
+if not exist "%_TARGETVOL%:\" (
+    echo   Volume %_TARGETVOL%: is not accessible. If it is BitLocker-encrypted, unlock
+    echo   it first, e.g.: manage-bde -unlock %_TARGETVOL%: -RecoveryPassword ^<key^>
+    goto :selectTargetVolume
+)
+> "%TMPDIR%\_sysbackup_vol.tmp" echo select volume %_TARGETVOL%
+>> "%TMPDIR%\_sysbackup_vol.tmp" echo detail volume
+diskpart /s "%TMPDIR%\_sysbackup_vol.tmp" > "%TMPDIR%\_sysbackup_vol.out" 2>&1
+if errorlevel 1 (
+    type "%TMPDIR%\_sysbackup_vol.out"
+    echo   Volume %_TARGETVOL%: could not be selected in diskpart.
+    goto :selectTargetVolume
+)
+type "%TMPDIR%\_sysbackup_vol.out"
+rem The disk holding the volume is marked with "*" in the detail output
+for /f "usebackq tokens=1-3" %%a in ("%TMPDIR%\_sysbackup_vol.out") do if "%%a"=="*" if not defined _TARGETDISK set "_TARGETDISK=%%c"
+if not exist "%_TARGETVOL%:\Windows\System32\" (
+    echo.
+    echo   WARNING: %_TARGETVOL%: does not contain a Windows installation - are you sure
+    echo            this is the right partition?
+    choice /c YN /m "Restore onto %_TARGETVOL%: anyway"
+    if errorlevel 2 goto :selectTargetVolume
+)
+
+echo.
+echo ******************************************************************************
+echo   ALL DATA ON VOLUME %_TARGETVOL%: (shown above) WILL BE ERASED and replaced
+echo   with %bigWimVolume%:\%backupWim% index %_SELECTED_INDEX%.
+echo   The partition layout and all other partitions remain untouched.
+echo ******************************************************************************
+choice /c YN /m "Are you really sure"
+if errorlevel 2 goto :mainMenu
+echo This is the last chance to abort with Ctrl+C.
+pause
+set "startTime=%time%"
+
+echo Formatting volume %_TARGETVOL%: ...
+> "%TMPDIR%\_sysbackup_fmt.tmp" echo select volume %_TARGETVOL%
+>> "%TMPDIR%\_sysbackup_fmt.tmp" echo format quick fs=ntfs label="Windows" override
+diskpart /s "%TMPDIR%\_sysbackup_fmt.tmp"
+if errorlevel 1 (echo ERROR: Formatting volume %_TARGETVOL%: failed. & goto :abort)
+if not exist "%_TARGETVOL%:\" (echo ERROR: Volume %_TARGETVOL%: is not accessible after formatting. & goto :abort)
+
+echo Switching to the high-performance power scheme to speed up deployment...
+powercfg /s 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c >nul 2>&1
+
+echo Applying %bigWimVolume%:\%backupWim% index %_SELECTED_INDEX% to %_TARGETVOL%:\ ...
+dism /Apply-Image /ImageFile:"%bigWimVolume%:\%backupWim%" /Index:%_SELECTED_INDEX% /ApplyDir:%_TARGETVOL%:\
+if errorlevel 1 (
+    echo ERROR: DISM /Apply-Image failed - volume %_TARGETVOL%: is NOT restored.
+    goto :abort
+)
+
+call :refreshBootFiles
+echo.
+echo Restore finished. Remove the backup drive and reboot into the restored Windows.
+goto :end
+
+
+rem ===========================================================================
 rem  Helpers
 rem ===========================================================================
+rem Re-creates the boot files of %_TARGETVOL%:\Windows on the EFI system
+rem partition of disk %_TARGETDISK% (partition restore). Never aborts: the
+rem existing boot entry normally still works because the partition is kept.
+:refreshBootFiles
+if not "%Firmware%"=="0x2" (
+    echo NOTE: Legacy BIOS boot - boot files are left unchanged. If Windows does
+    echo       not start, repair it with: bcdboot %_TARGETVOL%:\Windows /f BIOS
+    exit /b 0
+)
+if not defined _TARGETDISK goto :refreshBootFilesFailed
+set "_ESPPART="
+> "%TMPDIR%\_sysbackup_lp.tmp" echo select disk %_TARGETDISK%
+>> "%TMPDIR%\_sysbackup_lp.tmp" echo list partition
+diskpart /s "%TMPDIR%\_sysbackup_lp.tmp" > "%TMPDIR%\_sysbackup_lp.out" 2>&1
+for /f "usebackq tokens=1-3" %%a in ("%TMPDIR%\_sysbackup_lp.out") do if /i "%%c"=="System" if not defined _ESPPART set "_ESPPART=%%b"
+if not defined _ESPPART goto :refreshBootFilesFailed
+set "_ESPLETTER="
+for %%L in (S T U V Q P O N M L K) do if not defined _ESPLETTER if not exist "%%L:\" set "_ESPLETTER=%%L"
+if not defined _ESPLETTER goto :refreshBootFilesFailed
+echo Writing boot files to the EFI system partition (disk %_TARGETDISK%, partition %_ESPPART%)...
+> "%TMPDIR%\_sysbackup_esp.tmp" echo select disk %_TARGETDISK%
+>> "%TMPDIR%\_sysbackup_esp.tmp" echo select partition %_ESPPART%
+>> "%TMPDIR%\_sysbackup_esp.tmp" echo assign letter=%_ESPLETTER%
+diskpart /s "%TMPDIR%\_sysbackup_esp.tmp" >nul 2>&1
+if errorlevel 1 goto :refreshBootFilesFailed
+set "_BCDRC=0"
+"%_TARGETVOL%:\Windows\System32\bcdboot" %_TARGETVOL%:\Windows /s %_ESPLETTER%: /f UEFI || set "_BCDRC=1"
+> "%TMPDIR%\_sysbackup_esp.tmp" echo select disk %_TARGETDISK%
+>> "%TMPDIR%\_sysbackup_esp.tmp" echo select partition %_ESPPART%
+>> "%TMPDIR%\_sysbackup_esp.tmp" echo remove letter=%_ESPLETTER%
+diskpart /s "%TMPDIR%\_sysbackup_esp.tmp" >nul 2>&1
+if "%_BCDRC%"=="1" goto :refreshBootFilesFailed
+exit /b 0
+:refreshBootFilesFailed
+echo WARNING: The boot files could not be refreshed automatically. The existing
+echo          boot entry usually still works. If Windows does not start, assign a
+echo          letter to the EFI system partition (e.g. S:) and run:
+echo            bcdboot %_TARGETVOL%:\Windows /s S: /f UEFI
+exit /b 0
+
 rem Sets TS=yyyy-MM-dd_HH-mm, locale independent where possible
 :makeTimestamp
 set "TS="
@@ -361,14 +494,20 @@ echo      An index overview is written next to the WIM file after every run.
 echo   6. Verify the backup, ideally with a test restore on a similar PC, or at
 echo      least by mounting the WIM with dism /Mount-Image.
 echo.
-echo RESTORE  (R)  -  WinPE + UEFI only, ERASES the selected disk
+echo RESTORE  (R)  -  WinPE only
 echo   1. Boot from the WinPE backup drive and choose R.
-echo   2. Select the index (restore point) to apply - usually the highest one.
-echo   3. Select the target disk number carefully - all data on it is erased.
-echo      The script shows the disk details first and refuses disks that
-echo      contain the backup storage volume.
-echo   4. The disk is repartitioned (UEFI layout), the image is applied and the
-echo      disk is made bootable.
+echo   2. Choose the restore mode:
+echo      D = disk restore (bare metal, UEFI only) - ERASES the whole disk
+echo      P = partition restore - re-formats only the selected partition, e.g.
+echo          when Windows is broken but the disk/partitions are still fine
+echo   3. Select the index (restore point) to apply - usually the highest one.
+echo   4. D: Select the target disk number carefully - all data on it is erased.
+echo         The script shows the disk details first and refuses disks that
+echo         contain the backup storage volume. The disk is repartitioned
+echo         (UEFI layout), the image is applied and the disk made bootable.
+echo      P: Select the drive letter of the partition to restore (in WinPE it
+echo         is often not C:). It is formatted, the image is applied and the
+echo         boot files on the EFI system partition of that disk are refreshed.
 echo.
 echo See README.md in this folder for the full documentation.
 echo.
