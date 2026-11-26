@@ -30,6 +30,8 @@ Creates indexed, incremental full-system backups of a Linux root filesystem into
 
 ➡️ Details: [Linux/SystemBackup/README.md](Linux/SystemBackup/README.md)
 
-## License
+## License & Disclaimer
 
-Personal utility scripts — use at your own risk. Always verify your backups before relying on them.
+Licensed under the [MIT License](LICENSE).
+
+**USE ENTIRELY AT YOUR OWN RISK.** These scripts are provided **"AS IS"** without warranty or guarantee of any kind. Neither the author(s) nor any affiliated company assumes **any responsibility or liability** for data loss, system failure, or damages resulting from the use of this software. Every script **must be thoroughly reviewed and tested by the user prior to use**. Always verify your backups before relying on them.

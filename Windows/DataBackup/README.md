@@ -117,3 +117,9 @@ The schedule is installed as Task Scheduler task **`BackupMyData`** — the supp
 - **WIM mode** needs administrator rights and fails on open/locked files — close applications that use the source data before the backup runs.
 - **TIMESTAMP mode** uses robocopy with retries, multithreading, and (when elevated) backup mode `/B` to read files regardless of ACLs.
 - The backup target itself, `$RECYCLE.BIN`, and `System Volume Information` are automatically excluded.
+
+## License & Disclaimer
+
+Licensed under the [MIT License](../../LICENSE).
+
+**USE ENTIRELY AT YOUR OWN RISK.** These scripts are provided **"AS IS"** without warranty or guarantee of any kind. Neither the author(s) nor any affiliated company assumes **any responsibility or liability** for data loss, system failure, or damages resulting from the use of this software. Every script **must be thoroughly reviewed and tested by the user prior to use**. Always verify your backups before relying on them.

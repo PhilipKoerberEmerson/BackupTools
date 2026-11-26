@@ -5,7 +5,16 @@
 ::  Safety  : read-only until the final confirmation, free-space check before
 ::            the start, never deletes files, overwrites only on explicit request
 ::  Help    : restoreMyData.cmd /?
-::  PhK 2026-11-25
+::  PhK 2026-11-22
+::
+::  License and Disclaimer
+::    Licensed under the MIT License - see LICENSE in the repository root:
+::    https://github.com/PhilipKoerberEmerson/BackupTools
+::    USE ENTIRELY AT YOUR OWN RISK. This script is provided "AS IS" without
+::    warranty or guarantee of any kind. Neither the author(s) nor any
+::    affiliated company assumes any responsibility or liability for data
+::    loss, system failure, or damages resulting from its use. Review and
+::    test it thoroughly before use and always verify your backups.
 :: ===========================================================================
 setlocal EnableExtensions EnableDelayedExpansion
 

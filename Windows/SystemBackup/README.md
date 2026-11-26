@@ -90,3 +90,9 @@ Notes:
 - During backup you can open additional CMD windows (`cmdus` / `cmdde` / `start`, depending on your WinPE setup) to intervene or investigate while DISM runs.
 - Open/locked files are not an issue since the captured Windows is offline (you boot from WinPE, not from the system being backed up).
 - If DISM fails during capture, the most common culprits are OneDrive placeholder files and WSL VHDX files — extend the `[ExclusionList]` accordingly.
+
+## License & Disclaimer
+
+Licensed under the [MIT License](../../LICENSE).
+
+**USE ENTIRELY AT YOUR OWN RISK.** These scripts are provided **"AS IS"** without warranty or guarantee of any kind. Neither the author(s) nor any affiliated company assumes **any responsibility or liability** for data loss, system failure, or damages resulting from the use of this software. Every script **must be thoroughly reviewed and tested by the user prior to use**. Always verify your backups before relying on them.

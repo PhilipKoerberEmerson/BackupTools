@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Tests for backupMyData.sh - PhK 2026-11-22
 set -euo pipefail
 
 SCRIPT="$(cd "$(dirname "$0")/.." && pwd)/backupMyData.sh"

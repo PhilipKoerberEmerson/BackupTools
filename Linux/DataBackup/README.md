@@ -89,3 +89,9 @@ bash tests/backupMyData.test.sh
 ```
 
 Tests use temporary folders for real copies and snapshots, plus simulated free-space, disk-full/quota and log-write failures. Terminal activity is checked using a pseudo-terminal; no backup media is modified.
+
+## License & Disclaimer
+
+Licensed under the [MIT License](../../LICENSE).
+
+**USE ENTIRELY AT YOUR OWN RISK.** These scripts are provided **"AS IS"** without warranty or guarantee of any kind. Neither the author(s) nor any affiliated company assumes **any responsibility or liability** for data loss, system failure, or damages resulting from the use of this software. Every script **must be thoroughly reviewed and tested by the user prior to use**. Always verify your backups before relying on them.

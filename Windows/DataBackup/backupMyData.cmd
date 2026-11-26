@@ -4,7 +4,16 @@
 ::  Modes   : TIMESTAMP (robocopy full copy per run) or WIM (incremental DISM)
 ::  Schedule: Windows Task Scheduler (daily / weekly / logon / startup)
 ::  Help    : backupMyData.cmd /?
-::  PhK 2026-11-19
+::  PhK 2026-11-22
+::
+::  License and Disclaimer
+::    Licensed under the MIT License - see LICENSE in the repository root:
+::    https://github.com/PhilipKoerberEmerson/BackupTools
+::    USE ENTIRELY AT YOUR OWN RISK. This script is provided "AS IS" without
+::    warranty or guarantee of any kind. Neither the author(s) nor any
+::    affiliated company assumes any responsibility or liability for data
+::    loss, system failure, or damages resulting from its use. Review and
+::    test it thoroughly before use and always verify your backups.
 :: ===========================================================================
 setlocal EnableExtensions EnableDelayedExpansion
 

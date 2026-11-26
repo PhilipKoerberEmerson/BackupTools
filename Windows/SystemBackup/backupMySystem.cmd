@@ -21,6 +21,16 @@ rem      NOTE: "select disk" lines in these files are ignored - the disk that
 rem      was chosen interactively is always used.
 rem
 rem  See README.md for the full documentation.
+rem  PhK 2026-11-22
+rem
+rem  License and Disclaimer
+rem    Licensed under the MIT License - see LICENSE in the repository root:
+rem    https://github.com/PhilipKoerberEmerson/BackupTools
+rem    USE ENTIRELY AT YOUR OWN RISK. This script is provided "AS IS" without
+rem    warranty or guarantee of any kind. Neither the author(s) nor any
+rem    affiliated company assumes any responsibility or liability for data
+rem    loss, system failure, or damages resulting from its use. Review and
+rem    test it thoroughly before use and always verify your backups.
 rem ===========================================================================
 setlocal EnableExtensions
 set "APP_NAME=SystemBackup"

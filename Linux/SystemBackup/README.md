@@ -59,3 +59,9 @@ It is the Linux twin of the [Windows SystemBackup tool](../../Windows/SystemBack
 - **Separate `/boot` or LVM/btrfs subvolume layouts** are not recreated by the built-in restore (it builds the standard ESP + ext4 root layout). The archives themselves contain all files, so you can always partition manually and extract the chain yourself.
 - If GRUB installation fails (exotic distro), the data is still fully restored — chroot into `/mnt/sysrestore` from the live system and install the boot loader manually.
 - `zstd --long=27 -T0` or `xz -9 -T0` squeeze out more compression if storage is tight — adjust the `compress_cmd` function.
+
+## License & Disclaimer
+
+Licensed under the [MIT License](../../LICENSE).
+
+**USE ENTIRELY AT YOUR OWN RISK.** These scripts are provided **"AS IS"** without warranty or guarantee of any kind. Neither the author(s) nor any affiliated company assumes **any responsibility or liability** for data loss, system failure, or damages resulting from the use of this software. Every script **must be thoroughly reviewed and tested by the user prior to use**. Always verify your backups before relying on them.
